@@ -487,9 +487,37 @@ const ROOMDEF=[{name:'놀이마당',desc:'고양이들이 자유롭게 노는 �
 const DONATE_URL='https://kasca.org/34'; // 카스카 후원 페이지
 // 방명록 예시 메시지 (방문자가 남긴 메시지는 그 아래에 쌓임)
 const EXAMPLE_MSGS=[
- {n:'고양이좋아',m:'보리야 꼭 좋은 가족 만나!'},{n:'성수동 집사',m:'아이들 따뜻한 겨울 보내길 바라요'},{n:'냥냥펀치',m:'콩떡이 낚싯대 놀이 또 하러 올게요'},
- {n:'하루하루',m:'누룽지 할아버지 건강하세요'},{n:'밤산책',m:'봉사자분들 늘 감사합니다'},{n:'까만콩',m:'깜냥이랑 까미 꼭 같이 가길!'}
+ {n:'고양이좋아',m:'병일아 꼭 좋은 가족 만나!'},{n:'성수동 집사',m:'아이들 따뜻한 겨울 보내길 바라요'},{n:'냥냥펀치',m:'재롱이랑 낚싯대 놀이 또 하러 올게'},
+ {n:'하루하루',m:'몰리 너무 예뻐요 행복하자'},{n:'밤산책',m:'봉사자분들 늘 감사합니다'},{n:'까만콩',m:'구남매 모두 좋은 집 가길!'}
 ];
+/* ===== 공유 방명록 (Firebase) =====
+   Firebase 콘솔의 웹 앱 설정값을 아래 null 자리에 붙여 넣으면 모든 방문자가 같은 방명록을 봐요.
+   null이면 이 기기에만 저장돼요. */
+const FIREBASE_CONFIG={
+ apiKey:"AIzaSyDPg9JqaXLnYZTMJm_OMelVn1a_yG-jXiM",
+ authDomain:"cat-village-e62f3.firebaseapp.com",
+ projectId:"cat-village-e62f3",
+ storageBucket:"cat-village-e62f3.firebasestorage.app",
+ messagingSenderId:"592142045136",
+ appId:"1:592142045136:web:336332b169a35d177133d5"
+};
+let fsDb=null,remoteMsgs=null;
+function loadJs(u){return new Promise((ok,no)=>{const sc=document.createElement('script');sc.src=u;sc.onload=ok;sc.onerror=no;document.head.appendChild(sc)})}
+async function initShared(){
+ if(!FIREBASE_CONFIG)return;
+ try{
+  const V='https://www.gstatic.com/firebasejs/10.12.5/';
+  await loadJs(V+'firebase-app-compat.js');await loadJs(V+'firebase-firestore-compat.js');
+  firebase.initializeApp(FIREBASE_CONFIG);fsDb=firebase.firestore();
+  fsDb.collection('messages').orderBy('t','desc').limit(30).onSnapshot(q=>{
+   remoteMsgs=q.docs.map(d=>({n:d.data().n,m:d.data().m}));
+   if(typeof drawBoard==='function')drawBoard();
+   if($('#msgOv').classList.contains('on'))renderMsgs();
+  },e=>{console.warn('guestbook',e);fsDb=null;remoteMsgs=null});
+  const nt=$('#mNote');if(nt)nt.textContent='남긴 메시지는 길고양이마을을 찾은 모든 방문자에게 보여요. 따뜻한 말로 남겨 주세요 🐾';
+ }catch(e){console.warn('firebase load fail',e);fsDb=null}
+}
+setTimeout(initShared,0);
 const BAY_INSTA='https://www.instagram.com/bay._.log';
 const COLLARS=['#e86a6a','#5b8fd6','#f2b134','#7dbb7a','#c58ad9','#f08fb6','#4fb5b0'];
 
@@ -606,7 +634,7 @@ function wrapText(g,text,x,y,maxW,lh){const words=text.split(' ');let line='',yy
 const NOTE_COLS=['#fff3a8','#ffd6e0','#d8f0d0','#d6e6ff','#ffe2c2','#ecdcff'];
 function noteTex(d,i){return texCanvas(256,256,(g,w,h)=>{g.fillStyle=NOTE_COLS[i%NOTE_COLS.length];g.fillRect(8,8,w-16,h-16);g.fillStyle='rgba(0,0,0,.06)';g.fillRect(8,h-30,w-16,22);g.fillStyle='#e86a6a';g.beginPath();g.arc(w/2,22,9,0,7);g.fill();g.fillStyle='#4a3a30';g.font='26px "Gowun Dodum", sans-serif';g.textAlign='center';wrapText(g,d.m,w/2,80,w-50,34);g.font='24px Jua, sans-serif';g.fillStyle='#8a5a3a';g.fillText('- '+d.n,w/2,h-46)})}
 let boardTex=null,boardCv=null;
-function allMsgs(){const mine=(save.msgs||[]).slice().reverse();return mine.concat(EXAMPLE_MSGS.map(m=>Object.assign({ex:true},m)))}
+function allMsgs(){const ex=EXAMPLE_MSGS.map(m=>Object.assign({ex:true},m));if(remoteMsgs){return remoteMsgs.length>=6?remoteMsgs:remoteMsgs.concat(ex)}const mine=(save.msgs||[]).slice().reverse();return mine.concat(ex)}
 function drawBoard(){
  if(!boardCv){boardCv=document.createElement('canvas');boardCv.width=1400;boardCv.height=420}
  const g=boardCv.getContext('2d'),W=1400,H=420;
@@ -1367,7 +1395,9 @@ $('#msgForm').addEventListener('submit',e=>{e.preventDefault();
  if(!m){$('#mErr').textContent='메시지를 적어 주세요';return}
  if(BAD.some(w=>(n+m).toLowerCase().includes(w))){$('#mErr').textContent='고운 말로 남겨 주세요 🐾';return}
  if(Date.now()-lastPost<15000){$('#mErr').textContent='잠시 후에 다시 남길 수 있어요';return}
- lastPost=Date.now();save.msgs=(save.msgs||[]).concat([{n,m,t:Date.now()}]).slice(-50);persist();
+ lastPost=Date.now();
+ if(fsDb){fsDb.collection('messages').add({n,m,t:firebase.firestore.FieldValue.serverTimestamp()}).catch(err=>{console.warn(err);toast('메시지를 올리지 못했어요. 잠시 후 다시 시도해 주세요')})}
+ else{save.msgs=(save.msgs||[]).concat([{n,m,t:Date.now()}]).slice(-50);persist()}
  $('#mText').value='';$('#mCount').textContent='0/60';$('#mErr').textContent='';drawBoard();renderMsgs();toast('메시지가 보드에 붙었어요! 💌');
  if(ROOMS[2].bay)bayBubble('남겨 줘서 고마워요! 💛');
 });
@@ -1602,6 +1632,7 @@ window.addEventListener('resize',resize);if(window.ResizeObserver)new ResizeObse
 (save.photos||[]).forEach((p,i)=>p&&applyPhoto(i));goRoom(0,null,true);renderActs();updateNapButtons();resize();updateTotal();$('#loading').style.display='none';
 requestAnimationFrame(frame);
 })();
+
 </script>
 </body>
 </html>
